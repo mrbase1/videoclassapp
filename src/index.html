@@ -1,43 +1,3 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -200,13 +160,20 @@
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1920, height: 1080 }, audio: true });
                 localStream = stream;
-                document.getElementById('instructorVideo').srcObject = stream;
+                if (isInstructor) {
+                    // Only instructors set their video in #instructorVideo
+                    document.getElementById('instructorVideo').srcObject = stream;
+                }
                 if (!isInstructor) {
+                    // Students connect to the instructor
                     const instructorId = prompt('Enter instructor peer ID:');
                     if (instructorId) {
                         const call = peer.call(instructorId, stream);
                         handleCall(call);
                     }
+                    // Optionally add local student's video to the grid
+                    // Uncomment the line below if you want the local student's video in the grid
+                    // addVideoStream(peer.id, stream);
                 }
             } catch (err) {
                 console.error('Error accessing media devices:', err);
@@ -217,7 +184,9 @@
             try {
                 const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { width: 1920, height: 1080 } });
                 localStream = screenStream;
-                document.getElementById('instructorVideo').srcObject = screenStream;
+                if (isInstructor) {
+                    document.getElementById('instructorVideo').srcObject = screenStream;
+                }
                 document.getElementById('shareScreenBtn').classList.add('hidden');
                 document.getElementById('stopShareBtn').classList.remove('hidden');
                 broadcastStream(screenStream);
@@ -457,15 +426,27 @@
         function handleCall(call) {
             connections.set(call.peer, call);
             call.on('stream', (remoteStream) => {
-                addVideoStream(call.peer, remoteStream);
+                // If the local user is a student and the remote peer is the instructor, display in #instructorVideo
+                if (!isInstructor && call.metadata && call.metadata.role === 'instructor') {
+                    document.getElementById('instructorVideo').srcObject = remoteStream;
+                } else {
+                    // Otherwise, add to students grid (for student peers or instructor viewing students)
+                    addVideoStream(call.peer, remoteStream);
+                }
             });
             call.on('close', () => {
                 removeVideoStream(call.peer);
                 connections.delete(call.peer);
             });
+            // Attach role metadata to the call
+            call.metadata = { role: isInstructor ? 'instructor' : 'student' };
         }
 
         function addVideoStream(peerId, stream) {
+            // Prevent duplicate videos
+            if (document.getElementById(`video-${peerId}`)) {
+                return;
+            }
             const videoElement = document.createElement('video');
             videoElement.id = `video-${peerId}`;
             videoElement.classList.add('w-full', 'bg-black', 'rounded-lg');
@@ -494,6 +475,15 @@
                 videoElement.parentElement.remove();
             }
         }
+
+        // Listen for user join events to track instructor
+        socket.on('userJoined', ({ id, role }) => {
+            if (!isInstructor && role === 'instructor') {
+                // Students can initiate a call to the instructor
+                const call = peer.call(id, localStream);
+                handleCall(call);
+            }
+        });
     </script>
 </body>
 </html>
