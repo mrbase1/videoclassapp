@@ -143,7 +143,7 @@
 
     <script>
         const peer = new Peer();
-        const socket = io('https://your-signaling-server.com'); // Replace with your server URL
+        const socket = io('https://videoclassapp.onrender.com'); // Replace with your server URL
         let isInstructor = false;
         let localStream = null;
         const connections = new Map();
@@ -268,7 +268,7 @@
         // Cloudinary Upload Function
         async function uploadToCloudinary(file, resourceType, publicId) {
             // Fetch signature from server for signed upload
-            const response = await fetch('https://your-server.com/sign-upload', {
+            const response = await fetch('https://videoclassapp.onrender.com/sign-upload', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ publicId, resourceType })

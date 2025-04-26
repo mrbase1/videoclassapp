@@ -19,9 +19,9 @@ app.post('/sign-upload', (req, res) => {
     const timestamp = Math.round(new Date().getTime() / 1000);
     const signature = cloudinary.utils.api_sign_request(
         { public_id: publicId, timestamp, resource_type: resourceType },
-        'your_api_secret'
+        'fMWZ0Pq-M65SCpO2yR0cSPJm5Xc'
     );
-    res.json({ signature, timestamp, apiKey: 'your_api_key' });
+    res.json({ signature, timestamp, apiKey: '967241159958238' });
 });
 
 app.listen(3000, () => console.log('Server running on port 3000'));
