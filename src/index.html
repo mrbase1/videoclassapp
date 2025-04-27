@@ -103,9 +103,10 @@
 
     <script>
         const peer = new Peer();
-        const socket = io('https://videoclassapp.onrender.com'); // Replace with your server URL
+        const socket = io('https://videoclassapp.onrender.com'); // Replace with your Render URL
         let isInstructor = false;
         let localStream = null;
+        let instructorId = null;
         const connections = new Map();
         let canvas = null;
         let notes = [];
@@ -135,13 +136,19 @@
 
         // PeerJS Setup
         peer.on('open', (id) => {
+            console.log(`PeerJS: Connected with ID ${id}`);
             document.getElementById('userIdInput').value = id;
             socket.emit('join', { id, role: isInstructor ? 'instructor' : 'student' });
         });
 
         peer.on('call', (call) => {
+            console.log(`Received call from ${call.peer}`);
             call.answer(localStream);
             handleCall(call);
+        });
+
+        peer.on('error', (err) => {
+            console.error('PeerJS error:', err);
         });
 
         // Join Class
@@ -160,15 +167,12 @@
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1920, height: 1080 }, audio: true });
                 localStream = stream;
+                console.log('Local stream acquired');
                 if (isInstructor) {
-                    // Only instructors set their video in #instructorVideo
                     document.getElementById('instructorVideo').srcObject = stream;
-                }else {
-                    // Students wait for instructorId from userJoined event
-                    if (instructorId) {
-                        const call = peer.call(instructorId, stream);
-                        handleCall(call);
-                    }
+                }
+                if (!isInstructor) {
+                    addVideoStream(peer.id, stream);
                 }
             } catch (err) {
                 console.error('Error accessing media devices:', err);
@@ -193,7 +197,7 @@
         document.getElementById('stopShareBtn').addEventListener('click', () => {
             if (localStream) {
                 localStream.getTracks().forEach(track => track.stop());
-                startVideo(); // Revert to webcam
+                startVideo();
                 document.getElementById('shareScreenBtn').classList.remove('hidden');
                 document.getElementById('stopShareBtn').classList.add('hidden');
             }
@@ -231,7 +235,6 @@
 
         // Cloudinary Upload Function
         async function uploadToCloudinary(file, resourceType, publicId) {
-            // Fetch signature from server for signed upload
             const response = await fetch('https://videoclassapp.onrender.com/sign-upload', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -419,32 +422,41 @@
         }
 
         function handleCall(call) {
+            console.log(`Handling call from ${call.peer}`);
             connections.set(call.peer, call);
             call.on('stream', (remoteStream) => {
+                console.log(`Received stream from ${call.peer}`);
                 if (!isInstructor && call.peer === instructorId) {
-                    // Students display instructor's stream in #instructorVideo
                     document.getElementById('instructorVideo').srcObject = remoteStream;
                 } else {
-                    // Other peers (students for instructor, or students for students) go to #studentsGrid
                     addVideoStream(call.peer, remoteStream);
                 }
             });
             call.on('close', () => {
+                console.log(`Call closed with ${call.peer}`);
                 removeVideoStream(call.peer);
                 connections.delete(call.peer);
+            });
+            call.on('error', (err) => {
+                console.error(`Call error with ${call.peer}:`, err);
             });
         }
 
         function addVideoStream(peerId, stream) {
-            // Prevent duplicate videos
             if (document.getElementById(`video-${peerId}`)) {
+                console.log(`Video for ${peerId} already exists`);
                 return;
             }
+            console.log(`Adding video for ${peerId}`);
             const videoElement = document.createElement('video');
             videoElement.id = `video-${peerId}`;
             videoElement.classList.add('w-full', 'bg-black', 'rounded-lg');
             videoElement.srcObject = stream;
             videoElement.autoplay = true;
+            videoElement.onloadedmetadata = () => {
+                console.log(`Video metadata loaded for ${peerId}`);
+                videoElement.play().catch(err => console.error(`Play error for ${peerId}:`, err));
+            };
             const container = document.createElement('div');
             container.classList.add('relative');
             container.appendChild(videoElement);
@@ -466,19 +478,43 @@
             const videoElement = document.getElementById(`video-${peerId}`);
             if (videoElement) {
                 videoElement.parentElement.remove();
+                console.log(`Removed video for ${peerId}`);
             }
         }
 
-        // Listen for user join events to track instructor
-        socket.on('userJoined', ({ id, role, instructorId: newInstructorId }) => {
+        // Handle user join events
+        socket.on('userJoined', ({ id, role, instructorId: newInstructorId, users }) => {
+            console.log(`User joined: ${id}, Role: ${role}, Instructor ID: ${newInstructorId}`);
             if (role === 'instructor') {
-                instructorId = id; // Update global instructorId
+                instructorId = id;
+            }
+            if (isInstructor && role === 'student' && !connections.has(id)) {
+                console.log(`Instructor calling student ${id}`);
+                const call = peer.call(id, localStream);
+                handleCall(call);
             }
             if (!isInstructor && instructorId && !connections.has(instructorId)) {
-                // Students initiate a call to the instructor
+                console.log(`Student calling instructor ${instructorId}`);
                 const call = peer.call(instructorId, localStream);
                 handleCall(call);
             }
+            // Students connect to other students
+            if (!isInstructor) {
+                users.forEach(user => {
+                    if (user.id !== peer.id && user.id !== instructorId && !connections.has(user.id)) {
+                        console.log(`Student calling peer ${user.id}`);
+                        const call = peer.call(user.id, localStream);
+                        handleCall(call);
+                    }
+                });
+            }
+        });
+
+        socket.on('userLeft', ({ id, instructorId: newInstructorId }) => {
+            console.log(`User left: ${id}, New Instructor ID: ${newInstructorId}`);
+            instructorId = newInstructorId;
+            removeVideoStream(id);
+            connections.delete(id);
         });
     </script>
 </body>

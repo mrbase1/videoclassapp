@@ -7,7 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: 'https://mrbase1.com/vidclass', // Replace with your Netlify/Vercel URL
+        origin: 'https://mrbase1.com.ng/vidclass', // Replace with your Netlify/Vercel URL
         methods: ['GET', 'POST']
     }
 });
@@ -40,12 +40,15 @@ io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
     socket.on('join', ({ id, role }) => {
+        console.log(`Join: ID=${id}, Role=${role}`);
         if (role === 'instructor') {
-            instructorId = id; // Track instructor's ID
+            instructorId = id;
         }
         users.set(id, { socketId: socket.id, role });
         socket.join('classroom');
-        io.to('classroom').emit('userJoined', { id, role, instructorId });
+        // Broadcast all users to enable student-to-student connections
+        const userList = Array.from(users.entries()).map(([id, { role }]) => ({ id, role }));
+        io.to('classroom').emit('userJoined', { id, role, instructorId, users: userList });
     });
 
     socket.on('chatMessage', ({ message, sender }) => {
@@ -99,13 +102,15 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
+        console.log('User disconnected:', socket.id);
         users.forEach((value, key) => {
             if (value.socketId === socket.id) {
                 users.delete(key);
                 if (key === instructorId) {
-                    instructorId = null; // Clear instructorId if instructor disconnects
+                    instructorId = null;
                 }
-                io.to('classroom').emit('userLeft', { id: key, instructorId });
+                const userList = Array.from(users.entries()).map(([id, { role }]) => ({ id, role }));
+                io.to('classroom').emit('userLeft', { id: key, instructorId, users: userList });
             }
         });
     });
