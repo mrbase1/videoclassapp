@@ -163,17 +163,12 @@
                 if (isInstructor) {
                     // Only instructors set their video in #instructorVideo
                     document.getElementById('instructorVideo').srcObject = stream;
-                }
-                if (!isInstructor) {
-                    // Students connect to the instructor
-                    const instructorId = prompt('Enter instructor peer ID:');
+                }else {
+                    // Students wait for instructorId from userJoined event
                     if (instructorId) {
                         const call = peer.call(instructorId, stream);
                         handleCall(call);
                     }
-                    // Optionally add local student's video to the grid
-                    // Uncomment the line below if you want the local student's video in the grid
-                    // addVideoStream(peer.id, stream);
                 }
             } catch (err) {
                 console.error('Error accessing media devices:', err);
@@ -426,11 +421,11 @@
         function handleCall(call) {
             connections.set(call.peer, call);
             call.on('stream', (remoteStream) => {
-                // If the local user is a student and the remote peer is the instructor, display in #instructorVideo
-                if (!isInstructor && call.metadata && call.metadata.role === 'instructor') {
+                if (!isInstructor && call.peer === instructorId) {
+                    // Students display instructor's stream in #instructorVideo
                     document.getElementById('instructorVideo').srcObject = remoteStream;
                 } else {
-                    // Otherwise, add to students grid (for student peers or instructor viewing students)
+                    // Other peers (students for instructor, or students for students) go to #studentsGrid
                     addVideoStream(call.peer, remoteStream);
                 }
             });
@@ -438,8 +433,6 @@
                 removeVideoStream(call.peer);
                 connections.delete(call.peer);
             });
-            // Attach role metadata to the call
-            call.metadata = { role: isInstructor ? 'instructor' : 'student' };
         }
 
         function addVideoStream(peerId, stream) {
@@ -477,10 +470,13 @@
         }
 
         // Listen for user join events to track instructor
-        socket.on('userJoined', ({ id, role }) => {
-            if (!isInstructor && role === 'instructor') {
-                // Students can initiate a call to the instructor
-                const call = peer.call(id, localStream);
+        socket.on('userJoined', ({ id, role, instructorId: newInstructorId }) => {
+            if (role === 'instructor') {
+                instructorId = id; // Update global instructorId
+            }
+            if (!isInstructor && instructorId && !connections.has(instructorId)) {
+                // Students initiate a call to the instructor
+                const call = peer.call(instructorId, localStream);
                 handleCall(call);
             }
         });
